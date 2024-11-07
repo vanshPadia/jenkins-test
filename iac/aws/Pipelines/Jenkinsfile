@@ -1,0 +1,107 @@
+pipeline {
+    agent any
+    
+    environment {
+        AWS_DEFAULT_REGION = 'us-east-1'
+        DOMAIN_NAME = 'itsvansh.com' // Replace with your domain name
+        DNS_STACK_NAME = 'dns-acm-stack'
+        S3_CF_STACK_NAME = 's3-cloudfront-stack'
+        REPO_URL = 'https://github.com/vanshPadia/testing.git' // Replace with your Git repo URL
+    }
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                git branch: 'master', url: env.REPO_URL
+            }
+        }
+        
+        stage('Deploy DNS and ACM Stack') {
+            steps {
+                withCredentials([[
+                    $class: 'AmazonWebServicesCredentialsBinding',
+                    credentialsId: 'aws',
+                    accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+                    secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
+                ]]) {
+                    sh """
+                    aws cloudformation deploy \
+                        --template-file Route53-acm.yaml \
+                        --stack-name ${DNS_STACK_NAME} \
+                        --capabilities CAPABILITY_IAM \
+                        --parameter-overrides DomainName=${DOMAIN_NAME}
+                    """
+                }
+            }
+        }
+        
+        stage('Deploy S3 and CloudFront Stack') {
+            steps {
+                withCredentials([[
+                    $class: 'AmazonWebServicesCredentialsBinding',
+                    credentialsId: 'aws',
+                    accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+                    secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
+                ]]) {
+                    sh """
+                    aws cloudformation deploy \
+                        --template-file s3-cdn.yaml \
+                        --stack-name ${S3_CF_STACK_NAME} \
+                        --capabilities CAPABILITY_IAM
+                    """
+                }
+            }
+        }
+        
+        stage('Get S3 Bucket Name') {
+            steps {
+                withCredentials([[
+                    $class: 'AmazonWebServicesCredentialsBinding',
+                    credentialsId: 'aws',
+                    accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+                    secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
+                ]]) {
+                    script {
+                        env.S3_BUCKET = sh(
+                            script: """
+                            aws cloudformation describe-stacks \
+                                --stack-name ${S3_CF_STACK_NAME} \
+                                --query 'Stacks[0].Outputs[?OutputKey==`S3BucketName`].OutputValue' \
+                                --output text
+                            """,
+                            returnStdout: true
+                        ).trim()
+                    }
+                }
+            }
+        }
+        
+        stage('Upload index.html to S3') {
+            steps {
+                withCredentials([[
+                    $class: 'AmazonWebServicesCredentialsBinding',
+                    credentialsId: 'aws',
+                    accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+                    secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
+                ]]) {
+                    sh "aws s3 cp index.html s3://${S3_BUCKET}/"
+                }
+            }
+        }
+        
+        stage('Get Domain Information') {
+            steps {
+                withCredentials([[
+                    $class: 'AmazonWebServicesCredentialsBinding',
+                    credentialsId: 'aws',
+                    accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+                    secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
+                ]]) {
+                    script {
+                        echo "Website will be accessible at: https://${DOMAIN_NAME}"
+                    }
+                }
+            }
+        }
+    }
+}

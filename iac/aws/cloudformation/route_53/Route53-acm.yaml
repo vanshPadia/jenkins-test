@@ -1,0 +1,39 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "CloudFormation template for Route 53 and ACM certificate with DNS validation"
+
+Parameters:
+  DomainName:
+    Type: String
+    Description: The domain name for the certificate and Route 53 hosted zone
+
+Resources:
+  HostedZone:
+    Type: AWS::Route53::HostedZone
+    Properties:
+      Name: !Ref DomainName
+
+  Certificate:
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName: !Ref DomainName
+      ValidationMethod: DNS
+      DomainValidationOptions:
+        - DomainName: !Ref DomainName
+          HostedZoneId: !Ref HostedZone
+
+Outputs:
+  HostedZoneId:
+    Description: The ID of the hosted zone
+    Value: !Ref HostedZone
+    Export:
+      Name: hostedId
+
+  CertificateArn:
+    Description: The ARN of the created certificate
+    Value: !Ref Certificate
+    Export:
+      Name: acmId
+  hostedZoneName:
+    Value: !Ref DomainName
+    Export:
+      Name: dnsName
