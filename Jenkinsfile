@@ -1,12 +1,17 @@
 pipeline {
     agent any
     
+    environment {
+        AWS_REGION = 'us-east-1' // Specify your AWS region here
+    }
+
     stages {
         stage('Checkout') {
             steps {
                 script {
                     withFolderProperties {
-                        checkout([$class: 'GitSCM',
+                        checkout([
+                            $class: 'GitSCM',
                             branches: [[name: env.gitBranch ?: 'master']],
                             userRemoteConfigs: [[url: env.repositoryUrl]]
                         ])
@@ -20,7 +25,7 @@ pipeline {
                 script {
                     withFolderProperties {
                         def awsCreds = generateAwsCreds(env.environment)
-                        withAWS(credentials: awsCreds) {
+                        withAWS(credentials: awsCreds, region: AWS_REGION) {
                             cfnUpdate(
                                 stack: "${env.environment}-dns-acm",
                                 file: 'iac/aws/cloudformation/route_53/Route53-acm.yaml',
@@ -41,7 +46,7 @@ pipeline {
                 script {
                     withFolderProperties {
                         def awsCreds = generateAwsCreds(env.environment)
-                        withAWS(credentials: awsCreds) {
+                        withAWS(credentials: awsCreds, region: AWS_REGION) {
                             cfnUpdate(
                                 stack: "${env.environment}-s3-cdn",
                                 file: 'iac/aws/cloudformation/s3/s3-cdn.yaml',
@@ -59,7 +64,7 @@ pipeline {
                 script {
                     withFolderProperties {
                         def awsCreds = generateAwsCreds(env.environment)
-                        withAWS(credentials: awsCreds) {
+                        withAWS(credentials: awsCreds, region: AWS_REGION) {
                             def s3Bucket = sh(
                                 script: """
                                     aws cloudformation describe-stacks \
