@@ -1,9 +1,9 @@
 // vars/generateAwsCreds.groovy
 def call(String environment) {
     def roleArn = "arn:aws:iam::891377218197:role/try-2"
-
-    // Use AWS CLI to assume the role and capture credentials
     def sessionName = "jenkins-session-${UUID.randomUUID()}"
+
+    // Assume the AWS role and retrieve credentials
     def assumeRoleResult = sh(
         script: """
             aws sts assume-role \
@@ -15,13 +15,8 @@ def call(String environment) {
         returnStdout: true
     ).trim().split('\n')
 
-    // Extract the access key, secret key, and session token
     def (accessKey, secretKey, sessionToken) = assumeRoleResult
 
-    // Return the credentials as a map
-    return [
-        accessKeyId: accessKey,
-        secretAccessKey: secretKey,
-        sessionToken: sessionToken
-    ]
+    // Configure AWS credentials
+    withAWS(accessKeyId: accessKey, secretKey: secretKey, sessionToken: sessionToken)
 }
