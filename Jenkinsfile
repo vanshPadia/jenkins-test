@@ -19,10 +19,11 @@ pipeline {
             steps {
                 script {
                     withFolderProperties {
-                        withAWS(generateAwsCreds(env.environment)) {
+                        def awsCreds = generateAwsCreds(env.environment)
+                        withAWS(credentials: awsCreds) {
                             cfnUpdate(
                                 stack: "${env.environment}-dns-acm",
-                                file: 'Route53-acm.yaml',
+                                file: 'iac/aws/cloudformation/route_53/Route53-acm.yaml',
                                 params: [
                                     DomainName: env.domainName
                                 ],
@@ -39,10 +40,11 @@ pipeline {
             steps {
                 script {
                     withFolderProperties {
-                        withAWS(generateAwsCreds(env.environment)) {
+                        def awsCreds = generateAwsCreds(env.environment)
+                        withAWS(credentials: awsCreds) {
                             cfnUpdate(
                                 stack: "${env.environment}-s3-cdn",
-                                file: 's3-cdn.yaml',
+                                file: 'iac/aws/cloudformation/s3/s3-cdn.yaml',
                                 timeoutInMinutes: 30,
                                 capabilities: ['CAPABILITY_IAM']
                             )
@@ -56,7 +58,8 @@ pipeline {
             steps {
                 script {
                     withFolderProperties {
-                        withAWS(generateAwsCreds(env.environment)) {
+                        def awsCreds = generateAwsCreds(env.environment)
+                        withAWS(credentials: awsCreds) {
                             def s3Bucket = sh(
                                 script: """
                                     aws cloudformation describe-stacks \
