@@ -17,6 +17,8 @@ def call(String environment) {
 
     def (accessKey, secretKey, sessionToken) = assumeRoleResult
 
-    // Configure AWS credentials
-    withAWS(accessKeyId: accessKey, secretKey: secretKey, sessionToken: sessionToken)
+    // Return credentials as environment variables
+    env.AWS_ACCESS_KEY_ID = accessKey
+    env.AWS_SECRET_ACCESS_KEY = secretKey
+    env.AWS_SESSION_TOKEN = sessionToken
 }
