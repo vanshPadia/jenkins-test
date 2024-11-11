@@ -2,104 +2,117 @@ pipeline {
     agent any
     
     environment {
-        AWS_DEFAULT_REGION = 'us-east-1'
-        DOMAIN_NAME = 'itsvansh.com' // Replace with your domain name
-        DNS_STACK_NAME = 'dns-acm-stack'
-        S3_CF_STACK_NAME = 's3-cloudfront-stack'
-        REPO_URL = 'https://github.com/vanshPadia/testing.git' // Replace with your Git repo URL
+        AWS_REGION = 'us-east-1' // Specify your AWS region here
     }
-    
+
     stages {
         stage('Checkout') {
             steps {
-                git branch: 'master', url: env.REPO_URL
-            }
-        }
-        
-        stage('Deploy DNS and ACM Stack') {
-            steps {
-                withCredentials([[
-                    $class: 'AmazonWebServicesCredentialsBinding',
-                    credentialsId: 'aws',
-                    accessKeyVariable: 'AWS_ACCESS_KEY_ID',
-                    secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
-                ]]) {
-                    sh """
-                    aws cloudformation deploy \
-                        --template-file Route53-acm.yaml \
-                        --stack-name ${DNS_STACK_NAME} \
-                        --capabilities CAPABILITY_IAM \
-                        --parameter-overrides DomainName=${DOMAIN_NAME}
-                    """
-                }
-            }
-        }
-        
-        stage('Deploy S3 and CloudFront Stack') {
-            steps {
-                withCredentials([[
-                    $class: 'AmazonWebServicesCredentialsBinding',
-                    credentialsId: 'aws',
-                    accessKeyVariable: 'AWS_ACCESS_KEY_ID',
-                    secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
-                ]]) {
-                    sh """
-                    aws cloudformation deploy \
-                        --template-file s3-cdn.yaml \
-                        --stack-name ${S3_CF_STACK_NAME} \
-                        --capabilities CAPABILITY_IAM
-                    """
-                }
-            }
-        }
-        
-        stage('Get S3 Bucket Name') {
-            steps {
-                withCredentials([[
-                    $class: 'AmazonWebServicesCredentialsBinding',
-                    credentialsId: 'aws',
-                    accessKeyVariable: 'AWS_ACCESS_KEY_ID',
-                    secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
-                ]]) {
-                    script {
-                        env.S3_BUCKET = sh(
-                            script: """
-                            aws cloudformation describe-stacks \
-                                --stack-name ${S3_CF_STACK_NAME} \
-                                --query 'Stacks[0].Outputs[?OutputKey==`S3BucketName`].OutputValue' \
-                                --output text
-                            """,
-                            returnStdout: true
-                        ).trim()
+                script {
+                    withFolderProperties {
+                        checkout([
+                            $class: 'GitSCM',
+                            branches: [[name: env.gitBranch ?: 'master']],
+                            userRemoteConfigs: [[url: env.repositoryUrl]]
+                        ])
                     }
                 }
             }
         }
         
-        stage('Upload index.html to S3') {
+        stage('Deploy DNS Stack') {
             steps {
-                withCredentials([[
-                    $class: 'AmazonWebServicesCredentialsBinding',
-                    credentialsId: 'aws',
-                    accessKeyVariable: 'AWS_ACCESS_KEY_ID',
-                    secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
-                ]]) {
-                    sh "aws s3 cp index.html s3://${S3_BUCKET}/"
+                script {
+                    withFolderProperties {
+                        withAWS(credentials: 'aws', region: AWS_REGION) {
+                            try {
+                                cfnUpdate(
+                                    stack: "${env.environment}-dns-acm",
+                                    file: 'iac/aws/cloudformation/route_53/Route53-acm.yaml',
+                                    params: [
+                                        DomainName: env.domainName
+                                    ],
+                                    timeoutInMinutes: 30
+                                )
+                            } catch (Exception e) {
+                                echo "Error deploying DNS Stack: ${e}"
+                                error("Failed to deploy DNS Stack")
+                            }
+                        }
+                    }
                 }
             }
         }
         
-        stage('Get Domain Information') {
+        stage('Deploy CDN Stack') {
             steps {
-                withCredentials([[
-                    $class: 'AmazonWebServicesCredentialsBinding',
-                    credentialsId: 'aws',
-                    accessKeyVariable: 'AWS_ACCESS_KEY_ID',
-                    secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
-                ]]) {
-                    script {
-                        echo "Website will be accessible at: https://${DOMAIN_NAME}"
+                script {
+                    withFolderProperties {
+                        withAWS(credentials: 'aws', region: AWS_REGION) {
+                            try {
+                                cfnUpdate(
+                                    stack: "${env.environment}-s3-cdn",
+                                    file: 'iac/aws/cloudformation/s3/s3-cdn.yaml',
+                                    timeoutInMinutes: 30
+                                )
+                            } catch (Exception e) {
+                                echo "Error deploying CDN Stack: ${e}"
+                                error("Failed to deploy CDN Stack")
+                            }
+                        }
                     }
+                }
+            }
+        }
+        
+        stage('Deploy Content') {
+            steps {
+                script {
+                    withFolderProperties {
+                        withAWS(credentials: 'aws', region: AWS_REGION) {
+                            def s3Bucket = sh(
+                                script: """
+                                    aws cloudformation describe-stacks \
+                                        --stack-name ${env.environment}-s3-cdn \
+                                        --query 'Stacks[0].Outputs[?OutputKey==`S3BucketName`].OutputValue' \
+                                        --output text
+                                """,
+                                returnStdout: true
+                            ).trim()
+                            
+                            sh "aws s3 cp index.html s3://${s3Bucket}/"
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Verify') {
+            steps {
+                script {
+                    withFolderProperties {
+                        echo "Website deployed to: https://${env.domainName}"
+                    }
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            cleanWs()
+        }
+        success {
+            script {
+                withFolderProperties {
+                    echo "Pipeline completed successfully for ${env.environment} environment!"
+                }
+            }
+        }
+        failure {
+            script {
+                withFolderProperties {
+                    echo "Pipeline failed for ${env.environment} environment!"
                 }
             }
         }
